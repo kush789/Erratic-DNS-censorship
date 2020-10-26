@@ -1,3 +1,9 @@
+###############################################################################
+#           This file scans all IPs in a list of network ranges               #
+#                      (such as ["59.144.0.0/20"])                            #
+#                    in an attempt to find DNS servers                        #
+###############################################################################
+
 import sys
 
 import ipaddress
@@ -37,9 +43,10 @@ async def nameserver_probe(potential_nameservers, identified_nameservers,
                 (potential_nameserver, retry_count + 1))
 
 
-async def probe_network_ranges(network_ranges, probe_hostname, 
+async def probe_network_ranges(batch_size, network_ranges, probe_hostname,
                                timeout_in_seconds, max_probe_count):
     
+    # Generate list of IP addresses from network ranges
     potential_nameserver_generators = map(
         lambda network_range: ipaddress.ip_network(network_range).hosts(),
         network_ranges)
@@ -49,12 +56,12 @@ async def probe_network_ranges(network_ranges, probe_hostname,
         for potential_nameserver in potential_nameserver_generator:
             potential_nameservers.sync_q.put((str(potential_nameserver), 0))
 
+    # Probe each nameserver 
     identified_nameservers = janus.Queue()
-
     nameserver_checkers = [
         nameserver_probe(potential_nameservers, identified_nameservers,
             probe_hostname, timeout_in_seconds, max_probe_count) 
-        for _ in range(512)]
+        for _ in range(batch_size)]
     await asyncio.gather(*nameserver_checkers)
 
     with open("nameservers.txt", "w") as fp:
@@ -72,9 +79,10 @@ sys.stderr = DevNull()
 if __name__ == "__main__":
 
     network_ranges = ["59.144.0.0/20"] # Network ranges to probe for resolvers
-    probe_hostname = "google.com" # Dummy hostname to run DNS queries
-    timeout_in_seconds = 2 # Timeout per request
-    max_probe_count = 1 # Number of probe attempts per IP address
-
+    batch_size = 512                   # Number of IP addresses to probe asynchronously
+    probe_hostname = "google.com"      # Dummy hostname to run DNS queries
+    timeout_in_seconds = 2             # Timeout per request
+    max_probe_count = 1                # Number of probe attempts per IP address
+ 
     asyncio.run(probe_network_ranges(network_ranges, probe_hostname, 
         timeout_in_seconds, max_probe_count))
